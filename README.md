@@ -83,45 +83,55 @@ Enter SSH config host entry for teamserver: prod-teamserver
 [*] Downloading and parsing system logs...
 [+] Parsed 892 entries from system logs
 
-[*] Aggregating logs by IP address...
-[+] Created 5 combined IP logs:
-    - 192.168.1.100 (453 entries)
-    - 192.168.1.101 (234 entries)
-    - 192.168.1.102 (821 entries)
-    - 192.168.1.103 (567 entries)
-    - 192.168.1.104 (266 entries)
-
-[*] Aggregating system logs...
-[+] Created 4 combined system logs
+[*] Aggregating logs for complete view...
+[+] Created 5 complete IP logs
+[*] Aggregating logs by date...
+[+] Created 15 daily logs across 5 IPs
 
 [*] Writing output to: /home/operator/logstriker
-    - 192.168.1.100 (453 entries) -> 192_168_1_100_combined.log
-    - 192.168.1.101 (234 entries) -> 192_168_1_101_combined.log
-    - 192.168.1.102 (821 entries) -> 192_168_1_102_combined.log
-    - 192.168.1.103 (567 entries) -> 192_168_1_103_combined.log
-    - 192.168.1.104 (266 entries) -> 192_168_1_104_combined.log
-    - download (123 entries) -> download_combined.log
-    - weblog_80 (245 entries) -> weblog_80_combined.log
-    - weblog_443 (421 entries) -> weblog_443_combined.log
-    - events (103 entries) -> events_combined.log
 
-[+] Complete! Wrote 9 files
-[+] Total entries processed: 3233
+    - 192.168.1.100 (453 entries) -> complete/192.168.1.100-Complete.log
+    - 192.168.1.101 (234 entries) -> complete/192.168.1.101-Complete.log
+    - 192.168.1.102 (821 entries) -> complete/192.168.1.102-Complete.log
+    - 192.168.1.103 (567 entries) -> complete/192.168.1.103-Complete.log
+    - 192.168.1.104 (266 entries) -> complete/192.168.1.104-Complete.log
+
+    - 192.168.1.100 [251026] (89 entries) -> daily/192.168.1.100-251026.log
+    - 192.168.1.100 [251027] (178 entries) -> daily/192.168.1.100-251027.log
+    - 192.168.1.100 [251028] (186 entries) -> daily/192.168.1.100-251028.log
+    - 192.168.1.101 [251027] (102 entries) -> daily/192.168.1.101-251027.log
+    - 192.168.1.101 [251028] (132 entries) -> daily/192.168.1.101-251028.log
+    - 192.168.1.102 [251026] (234 entries) -> daily/192.168.1.102-251026.log
+    - 192.168.1.102 [251027] (298 entries) -> daily/192.168.1.102-251027.log
+    - 192.168.1.102 [251028] (289 entries) -> daily/192.168.1.102-251028.log
+    - 192.168.1.103 [251027] (245 entries) -> daily/192.168.1.103-251027.log
+    - 192.168.1.103 [251028] (322 entries) -> daily/192.168.1.103-251028.log
+    - 192.168.1.104 [251026] (98 entries) -> daily/192.168.1.104-251026.log
+    - 192.168.1.104 [251027] (87 entries) -> daily/192.168.1.104-251027.log
+    - 192.168.1.104 [251028] (81 entries) -> daily/192.168.1.104-251028.log
+
+[+] Complete! Wrote 20 total files
+    - 5 complete logs in complete/
+    - 15 daily logs in daily/
+[+] Total entries processed: 2341
 ```
 
 ## Output Files
 
-LogStriker generates the following output files in the current directory:
+LogStriker generates two types of output in separate folders:
 
-### Per-IP Beacon Logs
-- `{IP_ADDRESS}_combined.log` - All beacon activity for each target host, chronologically ordered
-- Example: `192_168_1_100_combined.log`
+### Complete Logs (`complete/` folder)
+All beacon activity for each IP across all dates:
+- `10.3.5.1-Complete.log` - Complete chronological log for IP 10.3.5.1
+- `192.168.1.100-Complete.log` - Complete chronological log for IP 192.168.1.100
 
-### System Logs
-- `download_combined.log` - All file downloads across all sessions
-- `weblog_80_combined.log` - All HTTP (port 80) web delivery logs
-- `weblog_443_combined.log` - All HTTPS (port 443) web delivery logs
-- `events_combined.log` - All Cobalt Strike event logs
+### Daily Logs (`daily/` folder)
+Beacon activity broken down by day for each IP:
+- `10.3.5.1-251028.log` - Activity for IP 10.3.5.1 on October 28, 2025
+- `10.3.5.1-251029.log` - Activity for IP 10.3.5.1 on October 29, 2025
+- `192.168.1.100-251028.log` - Activity for IP 192.168.1.100 on October 28, 2025
+
+System logs (download, weblog, events) are processed but not output separately as they serve as supplementary context.
 
 ## Cobalt Strike Log Structure
 
@@ -286,9 +296,17 @@ Part of the HackAndBackpack toolkit
 
 ## Version
 
-1.0.0 - Initial release
+1.1.0 - Current release
 
 ## Changelog
+
+### v1.1.0 (2025-01-01)
+- Added daily log breakdown by date in `daily/` folder
+- Changed output structure: `complete/` and `daily/` folders
+- Updated IP format in filenames (dots instead of underscores)
+- New naming: `IP-Complete.log` and `IP-YYMMDD.log`
+- Removed warnings for non-beacon system logs
+- Improved output organization
 
 ### v1.0.0 (2025-01-01)
 - Initial release

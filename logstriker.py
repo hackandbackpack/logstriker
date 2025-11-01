@@ -26,6 +26,7 @@ class LogEntry:
     content: List[str]
     source_file: str
     ip_address: Optional[str] = None
+    date_folder: Optional[str] = None
 
     def format(self) -> str:
         """Reconstruct entry in original log format."""
@@ -295,7 +296,8 @@ class LogParser:
                         entry_type=entry_type,
                         content=[content_line],
                         source_file=source_file,
-                        ip_address=ip_address
+                        ip_address=ip_address,
+                        date_folder=date_folder
                     )
                 except (ValueError, OverflowError) as e:
                     print(f"[!] Warning: Skipping malformed timestamp in {source_file}: {line[:80]}")
@@ -328,6 +330,22 @@ class LogAggregator:
         return entries_by_ip
 
     @staticmethod
+    def aggregate_by_ip_and_date(entries_by_ip: Dict[str, List[LogEntry]]) -> Dict[Tuple[str, str], List[LogEntry]]:
+        """Aggregate entries by IP address and date folder."""
+        aggregated = defaultdict(list)
+
+        for ip, entries in entries_by_ip.items():
+            for entry in entries:
+                if entry.date_folder:
+                    key = (ip, entry.date_folder)
+                    aggregated[key].append(entry)
+
+        for entries in aggregated.values():
+            entries.sort(key=lambda e: e.timestamp)
+
+        return dict(aggregated)
+
+    @staticmethod
     def aggregate_system_logs(entries_by_type: Dict[str, List[LogEntry]]) -> Dict[str, List[LogEntry]]:
         """Combine and sort system log entries by type."""
         for entries in entries_by_type.values():
@@ -341,22 +359,24 @@ class LogWriter:
     FILE_BUFFER_SIZE = 65536
 
     @staticmethod
-    def write_ip_logs(aggregated_entries: Dict[str, List[LogEntry]], output_dir: Path) -> int:
-        """Write per-IP combined log files."""
+    def write_complete_logs(aggregated_entries: Dict[str, List[LogEntry]], output_dir: Path) -> int:
+        """Write complete (all dates) combined log files per IP."""
+        complete_dir = output_dir / "complete"
+        complete_dir.mkdir(exist_ok=True)
+
         files_written = 0
 
         for ip, entries in aggregated_entries.items():
             if not entries:
                 continue
 
-            safe_ip = ip.replace('.', '_')
-            output_file = output_dir / f"{safe_ip}_combined.log"
+            output_file = complete_dir / f"{ip}-Complete.log"
 
             try:
                 with open(output_file, 'w', encoding='utf-8', buffering=LogWriter.FILE_BUFFER_SIZE) as f:
                     f.writelines(entry.format() for entry in entries)
 
-                print(f"    - {ip} ({len(entries)} entries) -> {output_file.name}")
+                print(f"    - {ip} ({len(entries)} entries) -> complete/{output_file.name}")
                 files_written += 1
             except IOError as e:
                 print(f"[!] Error writing {output_file}: {e}")
@@ -368,21 +388,24 @@ class LogWriter:
         return files_written
 
     @staticmethod
-    def write_system_logs(aggregated_entries: Dict[str, List[LogEntry]], output_dir: Path) -> int:
-        """Write combined system log files."""
+    def write_daily_logs(aggregated_entries: Dict[Tuple[str, str], List[LogEntry]], output_dir: Path) -> int:
+        """Write daily breakdown log files per IP and date."""
+        daily_dir = output_dir / "daily"
+        daily_dir.mkdir(exist_ok=True)
+
         files_written = 0
 
-        for log_type, entries in aggregated_entries.items():
+        for (ip, date_folder), entries in aggregated_entries.items():
             if not entries:
                 continue
 
-            output_file = output_dir / f"{log_type}_combined.log"
+            output_file = daily_dir / f"{ip}-{date_folder}.log"
 
             try:
                 with open(output_file, 'w', encoding='utf-8', buffering=LogWriter.FILE_BUFFER_SIZE) as f:
                     f.writelines(entry.format() for entry in entries)
 
-                print(f"    - {log_type} ({len(entries)} entries) -> {output_file.name}")
+                print(f"    - {ip} [{date_folder}] ({len(entries)} entries) -> daily/{output_file.name}")
                 files_written += 1
             except IOError as e:
                 print(f"[!] Error writing {output_file}: {e}")
@@ -479,15 +502,10 @@ def main():
             else:
                 current_date = datetime.now()
                 date_folder = current_date.strftime(LogParser.DATE_FOLDER_FORMAT)
-                print(f"[!] Warning: No date folder in path {log_path}, using {date_folder}")
 
             content = ssh.read_remote_file(log_path)
 
-            if content is None:
-                print(f"[!] Warning: Failed to download {log_path}")
-                continue
-            elif not content:
-                print(f"[!] Warning: Empty file {log_path}")
+            if content is None or not content:
                 continue
 
             entries = LogParser.parse_system_log(
@@ -498,34 +516,38 @@ def main():
             system_entries_by_type[log_type].extend(entries)
             total_system_entries += len(entries)
 
-    print(f"[+] Parsed {total_system_entries} entries from system logs")
+    if total_system_entries > 0:
+        print(f"[+] Parsed {total_system_entries} entries from system logs")
+    else:
+        print(f"[+] No system logs found")
 
     print()
-    print("[*] Aggregating logs by IP address...")
+    print("[*] Aggregating logs for complete view...")
 
-    aggregated_ip_logs = LogAggregator.aggregate_by_ip(beacon_entries_by_ip)
-    print(f"[+] Created {len(aggregated_ip_logs)} combined IP logs:")
+    aggregated_complete = LogAggregator.aggregate_by_ip(beacon_entries_by_ip)
+    print(f"[+] Created {len(aggregated_complete)} complete IP logs")
 
-    for ip, entries in sorted(aggregated_ip_logs.items()):
-        print(f"    - {ip} ({len(entries)} entries)")
+    print("[*] Aggregating logs by date...")
 
-    print()
-    print("[*] Aggregating system logs...")
-
-    aggregated_system_logs = LogAggregator.aggregate_system_logs(system_entries_by_type)
-    print(f"[+] Created {len(aggregated_system_logs)} combined system logs")
+    aggregated_daily = LogAggregator.aggregate_by_ip_and_date(beacon_entries_by_ip)
+    unique_ips = set(ip for ip, _ in aggregated_daily.keys())
+    print(f"[+] Created {len(aggregated_daily)} daily logs across {len(unique_ips)} IPs")
 
     print()
 
     output_dir = Path.cwd()
     print(f"[*] Writing output to: {output_dir}")
+    print()
 
-    ip_files = LogWriter.write_ip_logs(aggregated_ip_logs, output_dir)
-    system_files = LogWriter.write_system_logs(aggregated_system_logs, output_dir)
+    complete_files = LogWriter.write_complete_logs(aggregated_complete, output_dir)
+    print()
+    daily_files = LogWriter.write_daily_logs(aggregated_daily, output_dir)
 
     print()
-    print(f"[+] Complete! Wrote {ip_files + system_files} files")
-    print(f"[+] Total entries processed: {total_beacon_entries + total_system_entries}")
+    print(f"[+] Complete! Wrote {complete_files + daily_files} total files")
+    print(f"    - {complete_files} complete logs in complete/")
+    print(f"    - {daily_files} daily logs in daily/")
+    print(f"[+] Total entries processed: {total_beacon_entries}")
 
     return 0
 
