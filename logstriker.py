@@ -6,6 +6,7 @@ Parses Cobalt Strike Beacon logs from multiple files and organizes them
 chronologically for penetration testing analysis.
 """
 
+import csv
 import re
 import sys
 import os
@@ -346,6 +347,15 @@ class LogAggregator:
         return dict(aggregated)
 
     @staticmethod
+    def aggregate_all_chronologically(entries_by_ip: Dict[str, List[LogEntry]]) -> List[LogEntry]:
+        """Combine all entries across all IPs and sort chronologically."""
+        all_entries = []
+        for entries in entries_by_ip.values():
+            all_entries.extend(entries)
+        all_entries.sort(key=lambda e: e.timestamp)
+        return all_entries
+
+    @staticmethod
     def aggregate_system_logs(entries_by_type: Dict[str, List[LogEntry]]) -> Dict[str, List[LogEntry]]:
         """Combine and sort system log entries by type."""
         for entries in entries_by_type.values():
@@ -357,6 +367,14 @@ class LogWriter:
     """Writes aggregated logs to output files."""
 
     FILE_BUFFER_SIZE = 65536
+    CSV_HEADERS = [
+        'Command',
+        'Date',
+        'Time',
+        'Result',
+        'Note',
+        'Additional Comments'
+    ]
 
     @staticmethod
     def write_complete_logs(aggregated_entries: Dict[str, List[LogEntry]], output_dir: Path) -> int:
@@ -415,6 +433,39 @@ class LogWriter:
                 continue
 
         return files_written
+
+    @staticmethod
+    def write_csv_log(all_entries: List[LogEntry], output_dir: Path) -> bool:
+        """Write all entries to a single CSV file, ordered chronologically."""
+        output_file = output_dir / "logstriker-combined.csv"
+
+        try:
+            with open(output_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(LogWriter.CSV_HEADERS)
+
+                for entry in all_entries:
+                    command = ' '.join(entry.content) if entry.content else ''
+                    date_str = entry.timestamp.strftime('%Y-%m-%d')
+                    time_str = entry.timestamp.strftime('%H:%M:%S')
+
+                    writer.writerow([
+                        command,
+                        date_str,
+                        time_str,
+                        '',
+                        '',
+                        ''
+                    ])
+
+            print(f"    - logstriker-combined.csv ({len(all_entries)} entries)")
+            return True
+        except IOError as e:
+            print(f"[!] Error writing {output_file}: {e}")
+            return False
+        except Exception as e:
+            print(f"[!] Unexpected error writing {output_file}: {e}")
+            return False
 
 
 def main():
@@ -533,6 +584,11 @@ def main():
     unique_ips = set(ip for ip, _ in aggregated_daily.keys())
     print(f"[+] Created {len(aggregated_daily)} daily logs across {len(unique_ips)} IPs")
 
+    print("[*] Aggregating all logs chronologically for CSV...")
+
+    all_entries_chronological = LogAggregator.aggregate_all_chronologically(beacon_entries_by_ip)
+    print(f"[+] Aggregated {len(all_entries_chronological)} entries for CSV export")
+
     print()
 
     output_dir = Path.cwd()
@@ -542,11 +598,18 @@ def main():
     complete_files = LogWriter.write_complete_logs(aggregated_complete, output_dir)
     print()
     daily_files = LogWriter.write_daily_logs(aggregated_daily, output_dir)
+    print()
+
+    print("[*] Writing CSV output...")
+    csv_written = LogWriter.write_csv_log(all_entries_chronological, output_dir)
 
     print()
-    print(f"[+] Complete! Wrote {complete_files + daily_files} total files")
+    csv_count = 1 if csv_written else 0
+    print(f"[+] Complete! Wrote {complete_files + daily_files + csv_count} total files")
     print(f"    - {complete_files} complete logs in complete/")
     print(f"    - {daily_files} daily logs in daily/")
+    if csv_written:
+        print("    - 1 CSV file (logstriker-combined.csv)")
     print(f"[+] Total entries processed: {total_beacon_entries}")
 
     return 0
